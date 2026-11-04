@@ -68,6 +68,12 @@ input::placeholder{color:var(--muted)}
 .ew span{position:absolute;left:9px;color:var(--muted);font-size:12px;pointer-events:none}
 .ew input{padding-left:22px}
 
+/* Oficiais opcionais (escondidos até serem precisos) */
+.oculta{display:none!important}
+.add-rows{display:flex;gap:10px;flex-wrap:wrap;margin:-8px 0 20px}
+.rm{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 6px;margin-left:6px}
+.rm:hover{color:var(--red)}
+
 /* ── 5. Totais ── */
 .total-bar{background:var(--input-bg);border:1px solid var(--border);padding:12px 18px;display:flex;justify-content:flex-end;gap:24px;margin-bottom:20px;flex-wrap:wrap}
 .ti{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
@@ -139,6 +145,8 @@ input::placeholder{color:var(--muted)}
   .ot input{font-size:16px;padding:10px 12px}
   .ew span{left:12px;font-size:15px}
   .ew input{padding-left:28px}
+  .rm{float:right;font-size:18px;padding:4px 10px}
+  .add-rows{margin:-4px 0 16px}
   .total-bar{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:12px}
   .ti{align-items:flex-start}
   .ti:last-child{grid-column:1/-1;border-top:1px solid var(--border);padding-top:8px}
@@ -233,6 +241,7 @@ input::placeholder{color:var(--muted)}
       </tr></thead>
       <tbody id="officialsBody"></tbody>
     </table>
+    <div class="add-rows no-print" id="addRows"></div>
 
     <div class="total-bar">
       <div class="ti"><label>Prémios</label><span class="tv" id="t-premio">0,00 €</span></div>
@@ -315,14 +324,17 @@ const VALORES = { premio:[18,13], deslocacao:[6,25,35] };
 // Oficiais, pela ordem em que aparecem na folha.
 const ROLES = ['Comissário','1.º Árbitro','2.º Árbitro','Marcador','Marcador Auxiliar','Cronometrista','Operador 24s'];
 
+// Oficiais que ficam escondidos até se carregar em "＋" (escolha só os que existirem na lista ROLES).
+const OPCIONAIS = ['Comissário','Marcador Auxiliar'];
+
 // Lista de árbitros e oficiais: uma pessoa por linha, no formato  licença;nome
 const LICENCAS_BASE = `
 101;Rui Jorge do Nascimento Freitas
 674;Telma Filipa Rodrigues Barreira
 1108;Guilherme Dias da Rocha Pereira
+1727;Letícia Sofia Pinto Gomes
 5829;Henrique António Alves Moreira
 17274;Maria Angelina Lopes Ribeiro
-17275;Letícia Sofia Pinto Gomes
 17278;Filipa Eduarda Costa Esteves
 17279;Angélica de Jesus Santos Pinto Silva
 17282;Nélson Miguel Andrade Fernandes
@@ -494,8 +506,10 @@ function buildTable(){
     const celulaValor = c => `<td data-label="${NOMES_COLS[c]}">`
       + (VALORES[c] ? `<select class="sel-celula vsel no-print" data-col="${c}" onchange="escolherValor(this)"></select>` : '')
       + `<div class="ew"><span>€</span><input type="number" inputmode="decimal" class="${c} money" min="0" step="0.01" placeholder="0,00" oninput="calcTotals()"></div></td>`;
+    const opcional = OPCIONAIS.indexOf(role) >= 0;
+    if(opcional) tr.classList.add('oculta');
     tr.innerHTML = `
-      <td class="rl">${role}</td>
+      <td class="rl">${role}${opcional ? ' <button type="button" class="rm no-print" title="Esconder" onclick="ocultarLinha(this)">✕</button>' : ''}</td>
       <td data-label="Licença N.º"><input type="text" class="licenca" placeholder="—" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" oninput="autoFillNome(this)" onchange="autoFillNome(this)"></td>
       <td data-label="Nome"><input type="text" class="nome" placeholder="Nome..." autocapitalize="words" autocorrect="off" spellcheck="false" oninput="this.dataset.auto='';atualizarRubrica(this.closest('tr'))"></td>
       ${COLS.map(celulaValor).join('')}
@@ -504,7 +518,27 @@ function buildTable(){
     tr.querySelectorAll('.vsel').forEach(sel => preencherOpcoes(sel, 'Valor…', VALORES[sel.dataset.col].map(v => [String(v), v + ' €'])));
     sincronizarLinha(tr);
   });
-  calcTotals();
+  atualizarBotoesExtra(); calcTotals();
+}
+// Oficiais opcionais: aparecem só quando são precisos
+function atualizarBotoesExtra(){
+  const box = $('addRows'); box.innerHTML = '';
+  document.querySelectorAll('#officialsBody tr').forEach((tr,i) => {
+    if(!tr.classList.contains('oculta')) return;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-secondary btn-sm';
+    b.textContent = '＋ ' + ROLES[i]; b.onclick = () => mostrarLinha(i); box.appendChild(b);
+  });
+  box.style.display = box.children.length ? '' : 'none';
+}
+function mostrarLinha(i){
+  const tr = document.querySelectorAll('#officialsBody tr')[i]; tr.classList.remove('oculta');
+  atualizarBotoesExtra(); tr.querySelector('.licenca').focus(); tr.scrollIntoView({block:'center'}); guardarRascunho();
+}
+function ocultarLinha(btn){
+  const tr = btn.closest('tr');
+  tr.querySelectorAll('input').forEach(i => { i.value = ''; i.dataset.auto = ''; });
+  tr.querySelectorAll('select').forEach(s => { s.dataset.outro = ''; });
+  tr.classList.add('oculta'); sincronizarLinha(tr); atualizarBotoesExtra(); calcTotals(); guardarRascunho();
 }
 function calcTotals(){
   const t = {premio:0, deslocacao:0, diversos:0, refeicao:0};
@@ -521,7 +555,7 @@ function dados(){
   const officials = [...document.querySelectorAll('#officialsBody tr')].map((tr,i) => ({
     role: ROLES[i], licenca: tr.querySelector('.licenca').value.trim(), nome: tr.querySelector('.nome').value.trim(),
     premio: num(tr,'premio'), deslocacao: num(tr,'deslocacao'), diversos: num(tr,'diversos'), refeicao: num(tr,'refeicao'),
-    rubrica: tr.querySelector('.rubrica').value.trim()
+    rubrica: tr.querySelector('.rubrica').value.trim(), mostrar: !tr.classList.contains('oculta')
   }));
   return {prova:v('prova'), jogo_no:v('jogo_no'), data:v('data'), hora:v('hora'), local:v('local'), visitado:v('visitado'), visitante:v('visitante'), officials};
 }
@@ -582,7 +616,7 @@ function gerarPDF(d){
   const rowH = 11; let x = M;
   doc.setLineWidth(0.2); doc.setDrawColor(100); doc.setFont('helvetica','bold'); doc.setFontSize(7);
   cols.forEach(([t,w]) => { doc.setFillColor(238,238,238); doc.rect(x, y, w, 7, 'FD'); doc.setTextColor(0); doc.text(t.toUpperCase(), x+1.5, y+4.6); x += w; }); y += 7;
-  d.officials.forEach(o => {
+  d.officials.filter(o => o.mostrar !== false).forEach(o => {
     x = M; const cel = [o.role, o.licenca, o.nome, o.premio?fmtN(o.premio):'', o.deslocacao?fmtN(o.deslocacao):'', o.diversos?fmtN(o.diversos):'', o.refeicao?fmtN(o.refeicao):'', o.rubrica];
     cols.forEach(([t,w], i) => {
       doc.rect(x, y, w, rowH); doc.setFont('helvetica', i===0 ? 'bold' : 'normal'); doc.setFontSize(i===0 ? 9 : 10);
@@ -712,8 +746,9 @@ function restaurarRascunho(){
     tr.querySelector('.licenca').value = o.licenca || ''; tr.querySelector('.nome').value = o.nome || '';
     COLS.forEach(c => { tr.querySelector('.'+c).value = o[c] ? o[c] : ''; });
     tr.querySelector('.rubrica').value = o.rubrica || '';
+    if(OPCIONAIS.indexOf(o.role) >= 0) tr.classList.toggle('oculta', !(o.mostrar || comDados(o)));
   });
-  sincronizarListasTopo(); rows.forEach(sincronizarLinha); calcTotals();
+  sincronizarListasTopo(); rows.forEach(sincronizarLinha); atualizarBotoesExtra(); calcTotals();
   return true;
 }
 function limpar(semConfirmar){
